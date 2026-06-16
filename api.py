@@ -1,5 +1,6 @@
 """
 DeepSeek2API: FastAPI 路由与 OpenAI 兼容接口。
+使用 encoding_dsv4 进行正确的 prompt 编码。
 """
 
 import json
@@ -8,6 +9,7 @@ import asyncio
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
+import httpx as _httpx
 
 from browser import (
     global_state,
@@ -15,6 +17,7 @@ from browser import (
     apply_settings,
     fetch_deepseek_stream,
 )
+from encoding.encoding_dsv4 import encode_messages
 
 router = APIRouter()
 
@@ -30,12 +33,30 @@ async def chat_completions(request: Request):
     if not messages:
         raise HTTPException(status_code=400, detail="The 'messages' array is required.")
 
-    # 合并历史消息为单次查询输入
-    query_text = "\n".join(
-        f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in messages
-    )
+    # 显式禁用工具调用：当前通过网页逆向获取的 API 不稳定且不安全，不支持 tool calling
+    if body.get("tools"):
+        raise HTTPException(
+            status_code=400,
+            detail="Tool calling is not supported because it is unstable and insecure in the current web-based reverse-engineered setup."
+        )
 
-    # 解析模型指令
+    # 根据 model id 解析 thinking mode 和 reasoning effort
+    thinking_mode = "thinking" if "thinking" in model.lower() else "chat"
+    reasoning_effort = "max" if "max" in model.lower() else None
+
+    # 使用 encoding_dsv4 进行正确的 prompt 编码
+    # 之前的简单拼接无法处理 system 消息、历史多轮对话、thinking mode 等
+    try:
+        query_text = encode_messages(
+            messages,
+            thinking_mode=thinking_mode,
+            reasoning_effort=reasoning_effort,
+            drop_thinking=False
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to encode messages: {e}")
+
+    # 解析模型指令（用于网页 UI 自动化操作）
     m_choice, use_think, use_search = parse_model_id(model)
     req_id = int(time.time())
 
@@ -83,6 +104,9 @@ async def chat_completions(request: Request):
                     }
                     yield f"data: {json.dumps(chunk_data)}\n\n"
                 yield "data: [DONE]\n\n"
+            except _httpx.HTTPError:
+                # 服务端在流式传输中途断开连接，优雅结束
+                yield "data: [DONE]\n\n"
             finally:
                 global_state.chat_lock.release()
 
@@ -99,6 +123,9 @@ async def chat_completions(request: Request):
                     full_content += chunk_text
                 elif chunk_type == "reasoning":
                     full_reasoning += chunk_text
+        except _httpx.HTTPError:
+            # 服务端在传输过程中断开，返回当前已收集的部分内容
+            pass
         finally:
             global_state.chat_lock.release()
 
