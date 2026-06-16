@@ -2,7 +2,7 @@
 
 简体中文 | [English](README-en.md)
 
-通过 DeepSeek 官网聊天页（Playwright 自动化）提供一个兼容 OpenAI Chat Completions 的本地 API 服务。
+通过 Playwright 自动化 DeepSeek 官网聊天页，提供兼容 OpenAI Chat Completions 格式的本地 API 服务。
 
 ## 功能
 
@@ -14,37 +14,52 @@
 ## 环境要求
 
 - Python 3.10+
-- 可用的 DeepSeek 账号登录凭证
+- DeepSeek 账号 Cookie 与 userToken
 
 ## 安装
 
 ```bash
-pip install fastapi uvicorn httpx playwright
+# 安装依赖（推荐使用 uv）
+uv sync
+
+# 安装 Playwright Chromium
 playwright install chromium
 ```
 
-## 配置凭证
+## 配置
 
-编辑 `server.py` 中的 `CREDENTIALS`：
+在项目根目录创建 `.env` 文件：
 
-```python
-CREDENTIALS = {
-    "cookie": "填入你的 ds_cookie_preference",
-    "userToken": "填入你 localStorage 中的 userToken"
-}
+```env
+cookie=填入你的 ds_cookie_preference
+userToken=填入你 localStorage 中的 userToken
+
+# 可选：自定义端口，默认 8000
+PORT=8000
+
+# 可选：浏览器可视化模式
+# 当设置为 0、false、no、off、n、f 等（不区分大小写）时，
+# 浏览器将以可视化模式启动（headless=False），方便首次登录或调试
+HEADLESS=false
 ```
 
-> 注意：当前版本使用硬编码方式管理凭证，请勿提交包含真实凭证的代码。
+### 凭证获取方式
+
+1. 使用浏览器登录 [chat.deepseek.com](https://chat.deepseek.com)
+2. 打开开发者工具（F12）→ Application / Storage
+3. 复制 `cookie` 和 `localStorage` 中的 `userToken` 中的 `value` 字段
+
+> ⚠️ 注意：当前版本通过环境变量管理凭证，请勿将包含真实凭证的 `.env` 文件提交到仓库。
 
 ## 启动服务
 
 ```bash
-python server.py
+uv run main.py
 ```
 
 默认监听：`http://0.0.0.0:8000`
 
-首次启动 Playwright 可能需要在浏览器页面完成验证码。
+首次启动时，若未设置 `HEADLESS=false`，Playwright 将以无头模式运行，可能需要先以可视化模式启动并完成验证码。
 
 ## 接口说明
 
@@ -75,6 +90,16 @@ python server.py
 - `deepseek-fast`：普通模式
 - `deepseek-expert`：专家模式
 - `deepseek-expert-thinking-search`：专家 + 深度思考 + 智能搜索
+
+## 项目结构
+
+```
+.
+├── main.py      # 入口文件：读取配置、组装组件、启动服务
+├── api.py       # FastAPI 路由：OpenAI 兼容接口
+├── browser.py   # Playwright 浏览器自动化
+└── .env         # 环境变量配置
+```
 
 ## 已知限制
 
